@@ -1,12 +1,11 @@
-/.idea/
-/build/
-/cmake-build-debug/
 *
 !*/
-!/.gitignore
-!/[a-zA-Z0-9]*/.gitignore
+!.gitignore
 !CMakeLists.txt
 !*.c
 !*.h
 !*.hpp
 !*.cpp
+/.idea/
+/build/
+/cmake-build-debug/

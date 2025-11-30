@@ -10,7 +10,7 @@ int main()
     /* Parent creates N children */
     for (i = 0; i < N; i++) 
 	if ((pid[i] = Fork()) == 0)  /* Child */          //line:ecf:waitpid2:fork
-	    exit(10000+i);
+	    exit(1000+i);
 
     /* Parent reaps N children in order */
     i = 0;

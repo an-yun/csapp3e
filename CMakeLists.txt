@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.31)
 project(csapp)
 
-#set(CMAKE_VERBOSE_MAKEFILE ON)
+set(CMAKE_VERBOSE_MAKEFILE ON)
 
 file(GLOB_RECURSE CSAPP_SOURCES "src/*.cpp" "src/*.c")
 

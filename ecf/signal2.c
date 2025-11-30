@@ -37,8 +37,7 @@ int main()
 
     printf("Parent processing input\n");
     while (1)
-        ;
-
+        Sleep(1);
     exit(0);
 }
 

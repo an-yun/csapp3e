@@ -3,7 +3,7 @@
 
 void sigint_handler(int sig) /* Safe SIGINT handler */ 
 {
-    Sio_puts("Caught SIGINT!\n"); /* Safe output */    
+    Sio_puts("Safe Caught SIGINT!\n"); /* Safe output */
     _exit(0);                     /* Safe exit */   
 }                                       
 /* $end sigintsafe */

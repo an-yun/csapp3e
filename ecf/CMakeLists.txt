@@ -10,3 +10,13 @@ target_link_libraries(waitpid2
      csapp
 )
 
+add_executable(sigint)
+
+target_sources(sigint
+        PRIVATE
+        sigint.c
+)
+target_link_libraries(sigint
+        PRIVATE
+        csapp
+)

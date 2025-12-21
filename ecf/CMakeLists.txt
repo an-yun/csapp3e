@@ -57,3 +57,15 @@ target_link_libraries(signal2
         PRIVATE
         csapp
 )
+
+# 非本地跳转代码
+add_executable(restart)
+
+target_sources(restart
+        PRIVATE
+        restart.c
+)
+target_link_libraries(restart
+        PRIVATE
+        csapp
+)

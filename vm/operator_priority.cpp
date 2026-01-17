@@ -19,6 +19,9 @@ int main() {
     int* original_arr = new int[size]{};
     int* arr = original_arr;
     print(arr, size);
+    /**
+     * 右运算从右往左
+     **/
     *arr++;
     print(arr, size);
     (*arr)++;

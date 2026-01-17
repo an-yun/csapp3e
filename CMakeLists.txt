@@ -21,3 +21,6 @@ target_sources(csapp
 )
 
 add_subdirectory(ecf)
+
+add_subdirectory(vm)
+

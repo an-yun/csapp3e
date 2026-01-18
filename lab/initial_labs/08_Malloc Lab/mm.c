@@ -52,6 +52,7 @@ team_t team = {
 #define CHUNKSIZE  ((size_t)(1<<12))
 
 #define ALLOCATED ((size_t)(1))
+#define NOT_ALLOCATED ((size_t)(0))
 #define PREV_ALLOCATED ((size_t)(2))
 
 
@@ -76,12 +77,12 @@ const size_t mm_payloads_off = offsetof(mm_block_t, payloads);
  * @param p the address of payloads, returned by mm_malloc or mm_realloc
  * @return block struct
  */
-mm_block_t get_mm_block(const void *p) {
+mm_block_t* get_mm_block(const void *p) {
     char *payloads = (char *) p;
     mm_block_t *block = (mm_block_t *) (payloads - mm_payloads_off);
     // check align and allocated tags,
     assert((block->block_size & ALIGNMENT_MASK) <= 2);
-    return *block;
+    return block;
 }
 
 /*
@@ -91,7 +92,7 @@ mm_block_t get_mm_block(const void *p) {
  * @param allocated_tags see description of allocated bits at mm_block_t
  * @return the constructed block
  */
-mm_block_t put_mm_block(void *block_start_p, size_t block_size, size_t allocated_tags) {
+mm_block_t* put_mm_block(void *block_start_p, size_t block_size, size_t allocated_tags) {
     // check align
     assert((block_size & ALIGNMENT_MASK) == 0);
     // check allocated tags
@@ -105,7 +106,7 @@ mm_block_t put_mm_block(void *block_start_p, size_t block_size, size_t allocated
         size_t *footer_p = (size_t *) (&(block->payloads[block_size]) - block_size_bytes);
         *footer_p = block_size;
     }
-    return *block;
+    return block;
 }
 
 /*
@@ -185,10 +186,10 @@ size_t set_mm_block_size(mm_block_t *block, size_t new_size) {
  * @param block the pointer of current block
  * @return the pointer of next block
  */
-mm_block_t next_mm_block(const mm_block_t *block) {
+mm_block_t* next_mm_block(const mm_block_t *block) {
     size_t block_size = get_mm_block_size(block);
     mm_block_t *next_p = (mm_block_t *) &(block->payloads[block_size]);
-    return *next_p;
+    return next_p;
 }
 
 /*
@@ -196,9 +197,8 @@ mm_block_t next_mm_block(const mm_block_t *block) {
  * @param p the address of payloads
  * @return the pointer of next block
  */
-mm_block_t next_mm_block_from_p(const void *p) {
-    mm_block_t block = get_mm_block(p);
-    return next_mm_block(&block);
+mm_block_t* next_mm_block_from_p(const void *p) {
+    return next_mm_block(get_mm_block(p));
 }
 
 /*
@@ -206,9 +206,8 @@ mm_block_t next_mm_block_from_p(const void *p) {
  * @param p the address of payloads
  * @return the pointer of prev block
  */
-mm_block_t prev_mm_block(const void *p) {
-    mm_block_t block = get_mm_block(p);
-    mm_block_t *block_p = &block;
+mm_block_t* prev_mm_block(const void *p) {
+    mm_block_t *block_p = get_mm_block(p);
     // check current block is free
     assert(!is_mm_allocated(block_p));
     mm_block_t *prev_footer_p = (mm_block_t *) ((char*)block_p - block_size_bytes);
@@ -259,9 +258,9 @@ int mm_init(void) {
         return -1;
     heap_listp += start_off;
     // the prologue block and epilogue block are set allocated, for easy handle edge case
-    mm_block_t prologue_block = put_mm_block(heap_listp, ALIGNMENT, ALLOCATED);
-    mm_block_t epilogue_block = next_mm_block(&prologue_block);
-    put_mm_block(&epilogue_block, ALIGNMENT, ALLOCATED);
+    mm_block_t* prologue_block = put_mm_block(heap_listp, ALIGNMENT, ALLOCATED);
+    mm_block_t* epilogue_block = next_mm_block(prologue_block);
+    put_mm_block(epilogue_block, ALIGNMENT, ALLOCATED);
     if(extend_heap(CHUNKSIZE) == NULL)
         return -1;
     return 0;
@@ -279,15 +278,15 @@ static void *extend_heap(size_t bytes)
     size_t size = ALIGN(bytes);
     if ((bp = mem_sbrk(size)) == NULL_VOID_PTR)
         return NULL;
-    mm_block_t old_epilogue_block = get_mm_block(bp);
+    mm_block_t* old_epilogue_block = get_mm_block(bp);
+
     // Initialize old_epilogue_block to be free block
+    mm_block_t* new_free_block = put_mm_block(old_epilogue_block, size, NOT_ALLOCATED);
+    mm_block_t* new_epilogue_block = next_mm_block(new_free_block);
+    put_mm_block(new_epilogue_block, ALIGNMENT, ALLOCATED);
 
-    PUT(HDRP(bp), PACK(size, 0));         /* Free block header */   //line:vm:mm:freeblockhdr
-    PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */   //line:vm:mm:freeblockftr
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */ //line:vm:mm:newepihdr
-
-    /* Coalesce if the previous block was free */
-    return coalesce(bp);                                          //line:vm:mm:returnblock
+    // Coalesce if the previous block was free
+    return coalesce(new_free_block);
 }
 /*
  * mm_malloc - Allocate a block by incrementing the brk pointer.

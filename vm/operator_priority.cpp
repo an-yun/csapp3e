@@ -6,7 +6,7 @@
 
 void print(const int* arr, size_t size) {
     using std::cout;
-    cout << "the address of arr is" << arr << std::endl;
+    cout << "the address of arr is " << arr << std::endl;
     cout << "the data is" << std::endl;
     for (int i = 0; i < size; i++) {
         cout << arr[i] << " ";

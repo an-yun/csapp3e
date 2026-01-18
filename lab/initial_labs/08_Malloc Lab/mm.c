@@ -44,16 +44,16 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-#define NULL_VOID_PTR ((void *)-1)
-#define ALIGNMENT_MASK (ALIGNMENT-1)
+const void *null_void_ptr = (void *)-1;
+const size_t alignment_mask= ALIGNMENT-1;
 /* 
  * Extend heap by this amount (bytes) , default is 4 KB
  */ 
-#define CHUNKSIZE  ((size_t)(1<<12))
+const size_t chunk_size = 1<<12;
 
-#define ALLOCATED ((size_t)(1))
-#define NOT_ALLOCATED ((size_t)(0))
-#define PREV_ALLOCATED ((size_t)(2))
+const size_t allocated = 1;
+const size_t not_allocated = 0;
+const size_t prev_allocated = 2;
 
 
 /*
@@ -81,7 +81,7 @@ mm_block_t* get_mm_block(const void *p) {
     char *payloads = (char *) p;
     mm_block_t *block = (mm_block_t *) (payloads - mm_payloads_off);
     // check align and allocated tags,
-    assert((block->block_size & ALIGNMENT_MASK) <= 2);
+    assert((block->block_size & alignment_mask) <= 2);
     return block;
 }
 
@@ -94,7 +94,7 @@ mm_block_t* get_mm_block(const void *p) {
  */
 mm_block_t* put_mm_block(void *block_start_p, size_t block_size, size_t allocated_tags) {
     // check align
-    assert((block_size & ALIGNMENT_MASK) == 0);
+    assert((block_size & alignment_mask) == 0);
     // check allocated tags
     assert(allocated_tags <= 2);
     mm_block_t *block = (mm_block_t *) block_start_p;
@@ -116,8 +116,8 @@ mm_block_t* put_mm_block(void *block_start_p, size_t block_size, size_t allocate
  */
 size_t get_mm_block_size(const mm_block_t *block) {
     // check align and allocated tag
-    assert((block->block_size & ALIGNMENT_MASK) <= 2);
-    return block->block_size & ~ALIGNMENT_MASK;
+    assert((block->block_size & alignment_mask) <= 2);
+    return block->block_size & ~alignment_mask;
 }
 
 /*
@@ -126,7 +126,7 @@ size_t get_mm_block_size(const mm_block_t *block) {
  * @return allocated_tags
  */
 size_t get_mm_allocated_tags(const mm_block_t *block) {
-    size_t allocated_tags = block->block_size & ALIGNMENT_MASK;
+    size_t allocated_tags = block->block_size & alignment_mask;
     // check align and allocated tag
     assert(allocated_tags <= 2);
     return allocated_tags;
@@ -154,7 +154,7 @@ size_t set_mm_allocated_tags(mm_block_t *block, size_t allocated_tags) {
 // size_t set_mm_not_allocated(mm_block_t *block) {
 //     size_t old_allocated_tags = get_mm_allocated_tags(block);
 //     size_t block_size = get_mm_block_size(block);
-//     put_mm_block(block, block_size, old_allocated_tags & ~ALLOCATED);
+//     put_mm_block(block, block_size, old_allocated_tags & ~allocated);
 //     return old_allocated_tags;
 // }
 
@@ -174,7 +174,7 @@ size_t is_mm_allocated(const mm_block_t *block) {
  */
 size_t set_mm_block_size(mm_block_t *block, size_t new_size) {
     // check align
-    assert((new_size & ALIGNMENT_MASK) == 0);
+    assert((new_size & alignment_mask) == 0);
     size_t old_size = get_mm_block_size(block);
     size_t old_allocated_tags = get_mm_allocated_tags(block);
     put_mm_block(block, new_size, old_allocated_tags);
@@ -254,14 +254,14 @@ int mm_init(void) {
         start_off= ALIGNMENT - block_size_bytes;
     }
     // Create the initial empty heap 
-    if ((heap_listp = mem_sbrk(init_size)) == NULL_VOID_PTR)
+    if ((heap_listp = mem_sbrk(init_size)) == null_void_ptr)
         return -1;
     heap_listp += start_off;
     // the prologue block and epilogue block are set allocated, for easy handle edge case
-    mm_block_t* prologue_block = put_mm_block(heap_listp, ALIGNMENT, ALLOCATED);
+    mm_block_t* prologue_block = put_mm_block(heap_listp, ALIGNMENT, allocated);
     mm_block_t* epilogue_block = next_mm_block(prologue_block);
-    put_mm_block(epilogue_block, ALIGNMENT, ALLOCATED);
-    if(extend_heap(CHUNKSIZE) == NULL)
+    put_mm_block(epilogue_block, ALIGNMENT, allocated);
+    if(extend_heap(chunk_size) == NULL)
         return -1;
     return 0;
 }
@@ -276,14 +276,14 @@ static void *extend_heap(size_t bytes)
     char *bp;
     // extend the size if needed, for maintain alignment
     size_t size = ALIGN(bytes);
-    if ((bp = mem_sbrk(size)) == NULL_VOID_PTR)
+    if ((bp = mem_sbrk(size)) == null_void_ptr)
         return NULL;
     mm_block_t* old_epilogue_block = get_mm_block(bp);
 
     // Initialize old_epilogue_block to be free block
-    mm_block_t* new_free_block = put_mm_block(old_epilogue_block, size, NOT_ALLOCATED);
+    mm_block_t* new_free_block = put_mm_block(old_epilogue_block, size, not_allocated);
     mm_block_t* new_epilogue_block = next_mm_block(new_free_block);
-    put_mm_block(new_epilogue_block, ALIGNMENT, ALLOCATED);
+    put_mm_block(new_epilogue_block, ALIGNMENT, allocated);
 
     // Coalesce if the previous block was free
     return coalesce(new_free_block);

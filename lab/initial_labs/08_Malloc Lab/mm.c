@@ -14,14 +14,15 @@
 #include <assert.h>
 #include <unistd.h>
 #include <string.h>
+#include <stddef.h>
 
 #include "mm.h"
 #include "memlib.h"
 
-/*********************************************************
+/********************************************************
  * NOTE TO STUDENTS: Before you do anything else, please
  * provide your team information in the following struct.
- ********************************************************/
+ *******************************************************/
 team_t team = {
     /* Team name */
     "anyun",
@@ -41,70 +42,289 @@ team_t team = {
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
-
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
+#define NULL_VOID_PTR ((void *)-1)
+#define ALIGNMENT_MASK (ALIGNMENT-1)
 /* 
- * mm_init - initialize the malloc package.
+ * Extend heap by this amount (bytes) , default is 4 KB
+ */ 
+#define CHUNKSIZE  ((size_t)(1<<12))
+
+#define ALLOCATED ((size_t)(1))
+#define PREV_ALLOCATED ((size_t)(2))
+
+
+/*
+ * heap block struct
  */
-int mm_init(void)
-{
-    return 0;
+typedef struct {
+    /*
+     * the 2 lower bits are allocated bits, allocated bits can be 001, 000, 010
+     *  the lowest bit for current
+     *  the second-lowest bit for prev, only the lowest bit is 0, this bit is valid
+     */
+    size_t block_size;
+    char payloads[0];
+} mm_block_t;
+
+const size_t block_size_bytes = sizeof(size_t);
+const size_t mm_payloads_off = offsetof(mm_block_t, payloads);
+
+/*
+ * get block at address p
+ * @param p the address of payloads, returned by mm_malloc or mm_realloc
+ * @return block struct
+ */
+mm_block_t get_mm_block(const void *p) {
+    char *payloads = (char *) p;
+    mm_block_t *block = (mm_block_t *) (payloads - mm_payloads_off);
+    // check align and allocated tags,
+    assert((block->block_size & ALIGNMENT_MASK) <= 2);
+    return *block;
+}
+
+/*
+ * construct a block at block_start_p
+ * @param block_start_p the address to construct a block
+ * @param block_size the size of payloads
+ * @param allocated_tags see description of allocated bits at mm_block_t
+ * @return the constructed block
+ */
+mm_block_t put_mm_block(void *block_start_p, size_t block_size, size_t allocated_tags) {
+    // check align
+    assert((block_size & ALIGNMENT_MASK) == 0);
+    // check allocated tags
+    assert(allocated_tags <= 2);
+    mm_block_t *block = (mm_block_t *) block_start_p;
+    block->block_size = block_size;
+    // set allocated tag
+    block->block_size |= allocated_tags;
+    // if free ,set footer
+    if (allocated_tags != 1) {
+        size_t *footer_p = (size_t *) (&(block->payloads[block_size]) - block_size_bytes);
+        *footer_p = block_size;
+    }
+    return *block;
+}
+
+/*
+ * get the block size
+ * @param block the pointer of a block
+ * @return size fo the block
+ */
+size_t get_mm_block_size(const mm_block_t *block) {
+    // check align and allocated tag
+    assert((block->block_size & ALIGNMENT_MASK) <= 2);
+    return block->block_size & ~ALIGNMENT_MASK;
+}
+
+/*
+ * get allocated tags of the block
+ * @param block the pointer of a block
+ * @return allocated_tags
+ */
+size_t get_mm_allocated_tags(const mm_block_t *block) {
+    size_t allocated_tags = block->block_size & ALIGNMENT_MASK;
+    // check align and allocated tag
+    assert(allocated_tags <= 2);
+    return allocated_tags;
+}
+
+/*
+ * set allocated tags
+ * @param block the pointer of a block
+ * @return old allocated tags
+ */
+size_t set_mm_allocated_tags(mm_block_t *block, size_t allocated_tags) {
+    // check align and allocated tag
+    assert(allocated_tags <= 2);
+    size_t old_allocated_tags = get_mm_allocated_tags(block);
+    size_t block_size = get_mm_block_size(block);
+    put_mm_block(block, block_size, allocated_tags);
+    return old_allocated_tags;
+}
+
+// /*
+//  * set block to be allocated
+//  * @param block the pointer of a block
+//  * @return old allocated tags
+//  */
+// size_t set_mm_not_allocated(mm_block_t *block) {
+//     size_t old_allocated_tags = get_mm_allocated_tags(block);
+//     size_t block_size = get_mm_block_size(block);
+//     put_mm_block(block, block_size, old_allocated_tags & ~ALLOCATED);
+//     return old_allocated_tags;
+// }
+
+/*
+ * check the block is allocated
+ * @param block the pointer of a block
+ * @return 1 if the block is allocated, 0 if free
+ */
+size_t is_mm_allocated(const mm_block_t *block) {
+    return get_mm_allocated_tags(block) & 1;
+}
+
+/*
+ * set the block size
+ * @param block the pointer of a block
+ * @return old size
+ */
+size_t set_mm_block_size(mm_block_t *block, size_t new_size) {
+    // check align
+    assert((new_size & ALIGNMENT_MASK) == 0);
+    size_t old_size = get_mm_block_size(block);
+    size_t old_allocated_tags = get_mm_allocated_tags(block);
+    put_mm_block(block, new_size, old_allocated_tags);
+    return old_size;
+}
+
+/*
+ * get next block pointer
+ * @param block the pointer of current block
+ * @return the pointer of next block
+ */
+mm_block_t next_mm_block(const mm_block_t *block) {
+    size_t block_size = get_mm_block_size(block);
+    mm_block_t *next_p = (mm_block_t *) &(block->payloads[block_size]);
+    return *next_p;
+}
+
+/*
+ * get next block pointer
+ * @param p the address of payloads
+ * @return the pointer of next block
+ */
+mm_block_t next_mm_block_from_p(const void *p) {
+    mm_block_t block = get_mm_block(p);
+    return next_mm_block(&block);
+}
+
+/*
+ * get prev block pointer, only for current block is free
+ * @param p the address of payloads
+ * @return the pointer of prev block
+ */
+mm_block_t prev_mm_block(const void *p) {
+    mm_block_t block = get_mm_block(p);
+    mm_block_t *block_p = &block;
+    // check current block is free
+    assert(!is_mm_allocated(block_p));
+    mm_block_t *prev_footer_p = (mm_block_t *) ((char*)block_p - block_size_bytes);
+    size_t prev_block_size = get_mm_block_size(prev_footer_p);
+    // get prev payloads pointer
+    void *prev_p = (char*)block_p - prev_block_size;
+    return get_mm_block(prev_p);
 }
 
 /* 
+ * Global variables
+ */
+
+// Pointer to first block
+static char *heap_listp = 0;  /*  */
+
+/* 
+ * Function prototypes for internal helper routines 
+ */
+static void *extend_heap(size_t bytes);
+static void place(void *bp, size_t asize);
+static void *find_fit(size_t asize);
+static void *coalesce(void *bp);
+static void printblock(void *bp); 
+static void checkheap(int verbose);
+static void checkblock(void *bp);
+
+/*
+ * mm_init - initialize the malloc package.
+ */
+int mm_init(void) {
+    assert(printf("assert should not print when release"));
+    // the size of block_size must be less than ALIGNMENT, so that block can store block size info, no need more align space
+    assert(block_size_bytes <= ALIGNMENT);
+    // prologue block and epilogue block
+    size_t init_size = 2 * block_size_bytes;
+    size_t start_off = 0;
+    /*
+     * if block_size_bytes is less than align size, need padding
+     *  in my machine, size_t(8) is equal to the align size, do not need padding
+     */
+    if (block_size_bytes < ALIGNMENT) {
+        init_size = 2 * ALIGNMENT;
+        start_off= ALIGNMENT - block_size_bytes;
+    }
+    // Create the initial empty heap 
+    if ((heap_listp = mem_sbrk(init_size)) == NULL_VOID_PTR)
+        return -1;
+    heap_listp += start_off;
+    // the prologue block and epilogue block are set allocated, for easy handle edge case
+    mm_block_t prologue_block = put_mm_block(heap_listp, ALIGNMENT, ALLOCATED);
+    mm_block_t epilogue_block = next_mm_block(&prologue_block);
+    put_mm_block(&epilogue_block, ALIGNMENT, ALLOCATED);
+    if(extend_heap(CHUNKSIZE) == NULL)
+        return -1;
+    return 0;
+}
+
+/**
+ * extends the heap with a new free block
+ * @param bytes the size of bytes need to be extended,
+ * @return
+ */
+static void *extend_heap(size_t bytes)
+{
+    char *bp;
+    // extend the size if needed, for maintain alignment
+    size_t size = ALIGN(bytes);
+    if ((bp = mem_sbrk(size)) == NULL_VOID_PTR)
+        return NULL;
+    mm_block_t old_epilogue_block = get_mm_block(bp);
+    // Initialize old_epilogue_block to be free block
+
+    PUT(HDRP(bp), PACK(size, 0));         /* Free block header */   //line:vm:mm:freeblockhdr
+    PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */   //line:vm:mm:freeblockftr
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */ //line:vm:mm:newepihdr
+
+    /* Coalesce if the previous block was free */
+    return coalesce(bp);                                          //line:vm:mm:returnblock
+}
+/*
  * mm_malloc - Allocate a block by incrementing the brk pointer.
  *     Always allocate a block whose size is a multiple of the alignment.
  */
-void *mm_malloc(size_t size)
-{
-    int newsize = ALIGN(size + SIZE_T_SIZE);
+void *mm_malloc(size_t size) {
+    int newsize = ALIGN(size + block_size_bytes);
     void *p = mem_sbrk(newsize);
-    if (p == (void *)-1)
-	return NULL;
+    if (p == (void *) -1)
+        return NULL;
     else {
-        *(size_t *)p = size;
-        return (void *)((char *)p + SIZE_T_SIZE);
+        *(size_t *) p = size;
+        return (void *) ((char *) p + block_size_bytes);
     }
 }
 
 /*
  * mm_free - Freeing a block does nothing.
  */
-void mm_free(void *ptr)
-{
+void mm_free(void *ptr) {
 }
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
-void *mm_realloc(void *ptr, size_t size)
-{
+void *mm_realloc(void *ptr, size_t size) {
     void *oldptr = ptr;
     void *newptr;
     size_t copySize;
-    
+
     newptr = mm_malloc(size);
     if (newptr == NULL)
-      return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+        return NULL;
+    copySize = *(size_t *) ((char *) oldptr - block_size_bytes);
     if (size < copySize)
-      copySize = size;
+        copySize = size;
     memcpy(newptr, oldptr, copySize);
     mm_free(oldptr);
     return newptr;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

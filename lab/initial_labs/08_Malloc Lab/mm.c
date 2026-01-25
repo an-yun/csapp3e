@@ -42,7 +42,7 @@ team_t team = {
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+#define MAX(x, y) ((x) > (y)? (x) : (y))
 
 const void *null_void_ptr = (void *)-1;
 const size_t alignment_mask= ALIGNMENT-1;
@@ -71,6 +71,8 @@ typedef struct {
 } mm_block_t;
 
 const size_t block_size_bytes = sizeof(size_t);
+const size_t min_allocated_block_size = block_size_bytes;
+const size_t min_free_block_size = ALIGN(2*block_size_bytes);
 const size_t mm_payloads_off = offsetof(mm_block_t, payloads);
 
 /*
@@ -216,10 +218,10 @@ static char *heap_listp = 0;  /*  */
 /*
  * Function prototypes for internal helper routines
  */
-static void *extend_heap(size_t bytes);
+static mm_block_t* extend_heap(size_t bytes);
 static mm_block_t* find_fit(size_t adjusted_size);
-static void place(mm_block_t* block, size_t adjusted_size);
-static void *coalesce(void *bp);
+static mm_block_t* place(mm_block_t* block, size_t adjusted_size);
+static mm_block_t* coalesce(void *bp);
 
 /*
  * mm_init - initialize the malloc package.
@@ -229,7 +231,7 @@ int mm_init(void) {
     // the size of block_size must be less than ALIGNMENT, so that block can store block size info, no need more align space
     assert(block_size_bytes <= ALIGNMENT);
     // prologue block and epilogue block
-    size_t init_size = 2 * block_size_bytes;
+    size_t init_size = 2 * ALIGNMENT;
     size_t start_off = 0;
     /*
      * if block_size_bytes is less than align size, need padding
@@ -247,7 +249,7 @@ int mm_init(void) {
     mm_block_t* prologue_block = put_mm_block(heap_listp, ALIGNMENT, allocated);
     mm_block_t* epilogue_block = next_mm_block(prologue_block);
     put_mm_block(epilogue_block, ALIGNMENT, allocated);
-    if(extend_heap(chunk_size) == NULL)
+    if(extend_heap(chunk_size) == null_void_ptr)
         return -1;
     return 0;
 }
@@ -257,22 +259,22 @@ int mm_init(void) {
  * @param bytes the size of bytes need to be extended,
  * @return
  */
-static void *extend_heap(size_t bytes)
+static mm_block_t* extend_heap(size_t bytes)
 {
     char *bp;
     // extend the size if needed, for maintain alignment
     size_t size = ALIGN(bytes);
+    assert(size >= min_free_block_size);
     if ((bp = mem_sbrk(size)) == null_void_ptr)
         return NULL;
     mm_block_t* old_epilogue_block = get_mm_block(bp);
-
     // Initialize old_epilogue_block to be free block
     mm_block_t* new_free_block = put_mm_block(old_epilogue_block, size, not_allocated);
     mm_block_t* new_epilogue_block = next_mm_block(new_free_block);
     put_mm_block(new_epilogue_block, ALIGNMENT, allocated);
 
     // Coalesce if the previous block was free
-    return coalesce(new_free_block);
+    return coalesce(new_free_block->payloads);
 }
 
 /**
@@ -280,7 +282,7 @@ static void *extend_heap(size_t bytes)
  * @param bp pointer of the payloads
  * @return
  */
-static void *coalesce(void *bp) {
+static mm_block_t* coalesce(void *bp) {
     mm_block_t* curr_block = get_mm_block(bp);
     size_t curr_size = get_mm_block_size(curr_block);
     // check free
@@ -290,7 +292,7 @@ static void *coalesce(void *bp) {
     mm_block_t *next_block = next_mm_block(curr_block);
     size_t next_alloc = is_mm_allocated(next_block);
     if (prev_alloc && next_alloc) {
-        return bp;
+        return curr_block;
     } else if (prev_alloc && !next_alloc) {
         size_t next_size = get_mm_block_size(next_block);
         curr_size += next_size;
@@ -307,7 +309,7 @@ static void *coalesce(void *bp) {
         // resset new block
         curr_block = put_mm_block(prev_block, curr_size, not_allocated);
     }
-    return curr_block->payloads;
+    return curr_block;
 }
 
 /*
@@ -322,19 +324,21 @@ void *mm_malloc(size_t size) {
     if (size == 0) {
         return NULL;
     }
-    adjusted_size = ALIGN(size + block_size_bytes);
+    /**
+     * Search the free list for a fit to put allocated block
+     * so only to plus head tags, no need plus foot tags
+     */
+    adjusted_size = ALIGN(min_allocated_block_size + size);
     find_block = find_fit(adjusted_size);
-    if (find_block) {
-        place(find_block, adjusted_size);
-        return find_block->payloads;
+    // No fit found. Get more memory and place the block
+    if (!find_block) {
+        extend_size = MAX(adjusted_size, chunk_size);
+        if ((find_block = extend_heap(extend_size)) == null_void_ptr)
+            return NULL;
     }
-    void *p = mem_sbrk(newsize);
-    if (p == (void *) -1)
-        return NULL;
-    else {
-        *(size_t *) p = size;
-        return (void *) ((char *) p + block_size_bytes);
-    }
+    place(find_block, adjusted_size);
+    return find_block->payloads;
+
 }
 
 /**
@@ -352,7 +356,18 @@ static mm_block_t* find_fit(size_t adjusted_size) {
  * @param adjusted_size
  */
 static void place(mm_block_t* block, size_t adjusted_size) {
-
+    size_t block_size = get_mm_block_size(block);
+    // the rest is enough to split free block
+    size_t rest_size = block_size - adjusted_size;
+    if (rest_size >= min_free_block_size) {
+        // set allocated
+        put_mm_block(block, adjusted_size, allocated);
+        block = next_mm_block(block);
+        put_mm_block(block, rest_size, not_allocated);
+    } else {
+        // the whole block, set allocated
+        put_mm_block(block, block_size, allocated);
+    }
 }
 /*
  * mm_free - Freeing a block does nothing.

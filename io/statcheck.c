@@ -5,8 +5,13 @@ int main (int argc, char **argv)
 {
     struct stat stat;
     char *type, *readok;
+	// 获取当前工作目录
+	const int path_length = 1024;
+	char cwd[path_length];
+	getcwd(cwd, path_length);
+    printf("pwd: %s\n", cwd);
 
-    /* $end statcheck */
+	/* $end statcheck */
     if (argc != 2) {
 	fprintf(stderr, "usage: %s <filename>\n", argv[0]);
 	exit(0);

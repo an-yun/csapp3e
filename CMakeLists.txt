@@ -24,3 +24,5 @@ add_subdirectory(ecf)
 
 add_subdirectory(vm)
 
+add_subdirectory(io)
+

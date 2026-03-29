@@ -26,3 +26,4 @@ add_subdirectory(vm)
 
 add_subdirectory(io)
 
+add_subdirectory(netp)

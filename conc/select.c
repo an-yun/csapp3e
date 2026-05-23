@@ -1,7 +1,7 @@
 /* $begin select */
 #include "csapp.h"
 #include "echo.h"
-void command(void);
+int command(void);
 
 int main(int argc, char **argv) 
 {
@@ -23,22 +23,31 @@ int main(int argc, char **argv)
     while (1) {
 	ready_set = read_set;
 	Select(listenfd+1, &ready_set, NULL, NULL, NULL); //line:conc:select:select
-	if (FD_ISSET(STDIN_FILENO, &ready_set)) //line:conc:select:stdinready
-	    command(); /* Read command line from stdin */
+	if (FD_ISSET(STDIN_FILENO, &ready_set)) {
+		//line:conc:select:stdinready
+		if (!command()) {
+			return 0;
+		}
+	}
 	if (FD_ISSET(listenfd, &ready_set)) { //line:conc:select:listenfdready
             clientlen = sizeof(struct sockaddr_storage); 
 	    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-	    echo(connfd); /* Echo client input until EOF */
-	    Close(connfd);
+	    echo(connfd); /* Echo client input for each line */
+		Close(connfd);
 	}
     }
 }
 
-void command(void) {
+int command(void) {
     char buf[MAXLINE];
     if (!Fgets(buf, MAXLINE, stdin))
 	exit(0); /* EOF */
     printf("%s", buf); /* Process the input command */
+	if (!strcmp(buf, "q\n")) {
+		return 0;
+	} else {
+		return 1;
+	}
 }
 /* $end select */
 

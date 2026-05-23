@@ -10,7 +10,8 @@ int main(void) {
     int n1=0, n2=0;
 
     /* Extract the two arguments */
-    if ((buf = getenv("QUERY_STRING")) != NULL) {
+    if ((buf = getenv("QUERY_STRING")) != NULL
+    	&& strlen(buf) > 0) {
 	p = strchr(buf, '&');
 	*p = '\0';
 	strcpy(arg1, buf);

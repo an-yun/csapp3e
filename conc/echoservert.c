@@ -3,8 +3,8 @@
  */
 /* $begin echoservertmain */
 #include "csapp.h"
+#include "echo.h"
 
-void echo(int connfd);
 void *thread(void *vargp);
 
 int main(int argc, char **argv) 

@@ -3,8 +3,7 @@
  */
 /* $begin echoserverpmain */
 #include "csapp.h"
-void echo(int connfd);
-
+#include "echo.h"
 void sigchld_handler(int sig) //line:conc:echoserverp:handlerstart
 {
     while (waitpid(-1, 0, WNOHANG) > 0)

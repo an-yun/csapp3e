@@ -1,6 +1,6 @@
 /* $begin select */
 #include "csapp.h"
-void echo(int connfd);
+#include "echo.h"
 void command(void);
 
 int main(int argc, char **argv) 

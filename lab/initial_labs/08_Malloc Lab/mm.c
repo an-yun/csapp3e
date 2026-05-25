@@ -72,7 +72,7 @@ typedef struct {
 
 const size_t block_size_bytes = sizeof(size_t);
 const size_t min_allocated_block_size = block_size_bytes;
-const size_t min_free_block_size = ALIGN(2*block_size_bytes);
+const size_t min_free_block_size = ALIGN(block_size_bytes + ALIGNMENT);
 const size_t mm_payloads_off = offsetof(mm_block_t, payloads);
 
 /*
@@ -231,7 +231,7 @@ int mm_init(void) {
     // the size of block_size must be less than ALIGNMENT, so that block can store block size info, no need more align space
     assert(block_size_bytes <= ALIGNMENT);
     // prologue block and epilogue block
-    size_t init_size = 2 * (ALIGNMENT + block_size_bytes);
+    size_t init_size = 2 * min_free_block_size;
     size_t start_off = 0;
     /*
      * if block_size_bytes is less than align size, need padding
@@ -378,7 +378,7 @@ static void place(mm_block_t* block, size_t adjusted_size) {
     }
 }
 /*
- * mm_free - Freeing a block does nothing.
+ * mm_free - Freeing a block
  */
 void mm_free(void *ptr) {
 }

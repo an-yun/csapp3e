@@ -231,24 +231,23 @@ int mm_init(void) {
     // the size of block_size must be less than ALIGNMENT, so that block can store block size info, no need more align space
     assert(block_size_bytes <= ALIGNMENT);
     // prologue block and epilogue block
-    size_t init_size = 2 * ALIGNMENT;
+    size_t init_size = 2 * (ALIGNMENT + block_size_bytes);
     size_t start_off = 0;
     /*
      * if block_size_bytes is less than align size, need padding
      *  in my machine, size_t(8) is equal to the align size, do not need padding
      */
     if (block_size_bytes < ALIGNMENT) {
-        init_size = 2 * ALIGNMENT;
         start_off= ALIGNMENT - block_size_bytes;
     }
     // Create the initial empty heap
     if ((heap_listp = mem_sbrk(init_size)) == null_void_ptr)
         return -1;
-    heap_listp += start_off;
     // the prologue block and epilogue block are set allocated, for easy handle edge case
-    mm_block_t* prologue_block = put_mm_block(heap_listp, ALIGNMENT, allocated);
+    mm_block_t* prologue_block = put_mm_block(heap_listp + start_off, ALIGNMENT, allocated);
     mm_block_t* epilogue_block = next_mm_block(prologue_block);
-    put_mm_block(epilogue_block, ALIGNMENT, allocated);
+    // epilogue is allocated and size is zero, wasted ALIGNMENT bytes
+    put_mm_block(epilogue_block, 0, allocated);
     if(extend_heap(chunk_size) == null_void_ptr)
         return -1;
     return 0;
@@ -271,7 +270,7 @@ static mm_block_t* extend_heap(size_t bytes)
     // Initialize old_epilogue_block to be free block
     mm_block_t* new_free_block = put_mm_block(old_epilogue_block, size, not_allocated);
     mm_block_t* new_epilogue_block = next_mm_block(new_free_block);
-    put_mm_block(new_epilogue_block, ALIGNMENT, allocated);
+    put_mm_block(new_epilogue_block, 0, allocated);
 
     // Coalesce if the previous block was free
     return coalesce(new_free_block->payloads);
@@ -347,7 +346,16 @@ void *mm_malloc(size_t size) {
  * @return
  */
 static mm_block_t* find_fit(size_t adjusted_size) {
-
+    mm_block_t* head_block = get_mm_block(heap_listp);
+    size_t curr_size;
+    for (mm_block_t* current_block = head_block;
+        (curr_size = get_mm_block_size(current_block)) > 0; // not the epilogue block
+        current_block = next_mm_block(current_block)) {
+        if ((!is_mm_allocated(current_block) && curr_size >= adjusted_size)) {
+            return current_block;
+        }
+    }
+    return NULL;
 }
 
 /**

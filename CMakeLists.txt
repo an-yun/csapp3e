@@ -29,3 +29,5 @@ add_subdirectory(io)
 add_subdirectory(netp)
 
 add_subdirectory(conc)
+
+add_subdirectory(lab)

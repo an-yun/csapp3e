@@ -225,7 +225,7 @@ static mm_block_t *extend_heap(size_t bytes);
 
 static mm_block_t *find_fit(size_t adjusted_size);
 
-static mm_block_t *place(mm_block_t *block, size_t adjusted_size);
+static void place(mm_block_t *block, size_t adjusted_size);
 
 static mm_block_t *coalesce(mm_block_t *block);
 

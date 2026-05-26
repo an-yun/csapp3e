@@ -298,9 +298,9 @@ static mm_block_t *coalesce(mm_block_t *block) {
     size_t curr_size = get_mm_block_size(block);
     // check free
     assert(!is_mm_allocated(block));
-    mm_block_t *prev_block = prev_mm_block(block);
-    // attention, pre allocate info in current block
     size_t prev_alloc = is_mm_prev_allocated(block);
+    mm_block_t *prev_block = prev_alloc ? NULL : prev_mm_block(block) ;
+    // attention, pre allocate info in current block
     mm_block_t *next_block = next_mm_block(block);
     size_t next_alloc = is_mm_allocated(next_block);
     if (prev_alloc && next_alloc) {
@@ -406,6 +406,9 @@ void mm_free(void *ptr) {
     put_mm_block(mm_block,
         get_mm_block_size(mm_block) + block_size_bytes,
         is_mm_prev_allocated(mm_block) | not_allocated);
+    /*next block need to update pre allocated*/
+    mm_block_t * next_block = next_mm_block(mm_block);
+    set_mm_allocated_tags(next_block, get_mm_allocated_tags(next_block) & (~prev_allocated));
     coalesce(mm_block);
 }
 
@@ -471,7 +474,7 @@ void *mm_realloc(void *ptr, size_t size) {
                 place(pre_block, adjusted_size);
                 void* new_ptr = pre_block->payloads;
                 /*attention, need to handle overlap case for need block and old block*/
-                memcpy(new_ptr, ptr, adjusted_size);
+                memcpy(new_ptr, ptr, size);
                 return new_ptr;
             }
         }
@@ -480,7 +483,7 @@ void *mm_realloc(void *ptr, size_t size) {
      * free it and find a new block
      */
     mm_free(ptr);
-    void* new_ptr =  mm_malloc(adjusted_size);
-    memcpy(new_ptr, ptr, adjusted_size);
+    void* new_ptr = mm_malloc(size);
+    memcpy(new_ptr, ptr, size);
     return new_ptr;
 }

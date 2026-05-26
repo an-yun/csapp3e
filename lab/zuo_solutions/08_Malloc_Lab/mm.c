@@ -87,7 +87,7 @@ mm_block_t *get_mm_block(const void *p) {
     char *payloads = (char *) p;
     mm_block_t *block = (mm_block_t *) (payloads - mm_payloads_off);
     // check align and allocated tags,
-    assert((block->block_size & alignment_mask) <= 2);
+    assert((block->block_size & alignment_mask) <= 3);
     return block;
 }
 
@@ -102,15 +102,15 @@ mm_block_t *put_mm_block(void *block_start_p, size_t block_size, size_t allocate
     // check align
     assert((block_size & alignment_mask) == 0);
     // check allocated tags
-    assert(allocated_tags <= 2);
+    assert(allocated_tags <= 3);
     mm_block_t *block = (mm_block_t *) block_start_p;
     block->block_size = block_size;
     // set allocated tag
     block->block_size |= allocated_tags;
     // if free ,set footer
     if (!(allocated_tags & allocated)) {
-        size_t *footer_p = (size_t *) (&(block->payloads[block_size]) - block_size_bytes);
-        *footer_p = block_size;
+        size_t *footer_p = (size_t *) ((char*)block + block_size - block_size_bytes);
+        *footer_p = block_size | allocated_tags;
     }
     return block;
 }
@@ -122,7 +122,7 @@ mm_block_t *put_mm_block(void *block_start_p, size_t block_size, size_t allocate
  */
 size_t get_mm_block_size(const mm_block_t *block) {
     // check align and allocated tag
-    assert((block->block_size & alignment_mask) <= 2);
+    assert((block->block_size & alignment_mask) <= 3);
     return block->block_size & ~alignment_mask;
 }
 
@@ -134,7 +134,7 @@ size_t get_mm_block_size(const mm_block_t *block) {
 size_t get_mm_allocated_tags(const mm_block_t *block) {
     size_t allocated_tags = block->block_size & alignment_mask;
     // check align and allocated tag
-    assert(allocated_tags <= 2);
+    assert(allocated_tags <= 3);
     return allocated_tags;
 }
 
@@ -145,7 +145,7 @@ size_t get_mm_allocated_tags(const mm_block_t *block) {
  */
 size_t set_mm_allocated_tags(mm_block_t *block, size_t allocated_tags) {
     // check align and allocated tag
-    assert(allocated_tags <= 2);
+    assert(allocated_tags <= 3);
     size_t old_allocated_tags = get_mm_allocated_tags(block);
     size_t block_size = get_mm_block_size(block);
     put_mm_block(block, block_size, allocated_tags);
@@ -191,8 +191,11 @@ size_t set_mm_block_size(mm_block_t *block, size_t new_size) {
  */
 mm_block_t *next_mm_block(const mm_block_t *block) {
     size_t block_size = get_mm_block_size(block);
-    mm_block_t *next_p = (mm_block_t *) ((char *) block + block_size);
-    return next_p;
+    if (is_mm_allocated(block)) {
+        return (mm_block_t *) ((char *) block->payloads + block_size);
+    } else {
+        return (mm_block_t *) ((char *) block + block_size);
+    }
 }
 
 /*
@@ -200,10 +203,8 @@ mm_block_t *next_mm_block(const mm_block_t *block) {
  * @param p the address of payloads
  * @return the pointer of prev block
  */
-mm_block_t *prev_mm_block(const void *p) {
-    mm_block_t *block_p = get_mm_block(p);
+mm_block_t *prev_mm_block(mm_block_t *block_p) {
     // check current block is free
-    assert(!is_mm_allocated(block_p));
     mm_block_t *prev_footer_p = (mm_block_t *) ((char *) block_p - block_size_bytes);
     size_t prev_block_size = get_mm_block_size(prev_footer_p);
     // get prev block address
@@ -250,10 +251,14 @@ int mm_init(void) {
     if ((heap_listp = mem_sbrk(init_size)) == null_void_ptr)
         return -1;
     // the prologue block and epilogue block are set allocated, for easy handle edge case
-    mm_block_t *prologue_block = put_mm_block(heap_listp + start_off, ALIGNMENT, allocated);
+    mm_block_t *prologue_block = put_mm_block(heap_listp + start_off,
+        ALIGNMENT,
+        allocated);
     mm_block_t *epilogue_block = next_mm_block(prologue_block);
+    // set the first block, not the prologue_block
+    heap_listp = (char*)epilogue_block;
     // epilogue is allocated and size is zero, wasted ALIGNMENT bytes
-    put_mm_block(epilogue_block, 0, allocated);
+    put_mm_block(epilogue_block, 0, prev_allocated | allocated);
     if (!extend_heap(chunk_size))
         return -1;
     return 0;
@@ -271,9 +276,12 @@ static mm_block_t *extend_heap(size_t bytes) {
     assert(size >= min_free_block_size);
     if ((bp = mem_sbrk(size)) == null_void_ptr)
         return NULL;
-    mm_block_t *old_epilogue_block = get_mm_block(bp);
+    mm_block_t *old_epilogue_block = (mm_block_t*)(bp-min_free_block_size);
+    size_t new_tags = is_mm_prev_allocated(old_epilogue_block) | not_allocated;
     // Initialize old_epilogue_block to be free block
-    mm_block_t *new_free_block = put_mm_block(old_epilogue_block, size, not_allocated);
+    mm_block_t *new_free_block = put_mm_block(old_epilogue_block,
+        size,
+        new_tags);
     mm_block_t *new_epilogue_block = next_mm_block(new_free_block);
     put_mm_block(new_epilogue_block, 0, allocated);
 
@@ -291,7 +299,8 @@ static mm_block_t *coalesce(mm_block_t *block) {
     // check free
     assert(!is_mm_allocated(block));
     mm_block_t *prev_block = prev_mm_block(block);
-    size_t prev_alloc = is_mm_allocated(prev_block);
+    // attention, pre allocate info in current block
+    size_t prev_alloc = is_mm_prev_allocated(block);
     mm_block_t *next_block = next_mm_block(block);
     size_t next_alloc = is_mm_allocated(next_block);
     if (prev_alloc && next_alloc) {
@@ -299,18 +308,18 @@ static mm_block_t *coalesce(mm_block_t *block) {
     } else if (prev_alloc && !next_alloc) {
         size_t next_size = get_mm_block_size(next_block);
         curr_size += next_size;
-        put_mm_block(block, curr_size, not_allocated);
+        put_mm_block(block, curr_size, prev_allocated | not_allocated);
     } else if (!prev_alloc && next_alloc) {
         size_t prev_size = get_mm_block_size(prev_block);
         curr_size += prev_size;
         // resset new block
-        block = put_mm_block(prev_block, curr_size, not_allocated);
+        block = put_mm_block(prev_block, curr_size, prev_allocated | not_allocated);
     } else {
         size_t prev_size = get_mm_block_size(prev_block);
         size_t next_size = get_mm_block_size(next_block);
         curr_size += prev_size + next_size;
         // resset new block
-        block = put_mm_block(prev_block, curr_size, not_allocated);
+        block = put_mm_block(prev_block, curr_size, prev_allocated | not_allocated);
     }
     return block;
 }
@@ -347,7 +356,7 @@ void *mm_malloc(size_t size) {
  */
 #ifdef FIRST_FIT
 static mm_block_t *find_fit(size_t adjusted_size) {
-    mm_block_t *head_block = get_mm_block(heap_listp);
+    mm_block_t *head_block = (mm_block_t*)heap_listp;
     size_t curr_size;
     for (mm_block_t *current_block = head_block;
          (curr_size = get_mm_block_size(current_block)) > 0; // not the epilogue block
@@ -372,13 +381,19 @@ static void place(mm_block_t *block, size_t adjusted_size) {
     // the rest is enough to split free block
     size_t rest_size = block_size - adjusted_size;
     if (rest_size >= min_free_block_size) {
-        // set allocated
-        put_mm_block(block, adjusted_size, allocated);
+        // set allocated, need to subtract the header
+        put_mm_block(block,
+            adjusted_size - block_size_bytes,
+            prev_allocated | allocated);
         block = next_mm_block(block);
-        put_mm_block(block, rest_size, not_allocated);
+        put_mm_block(block, rest_size,  prev_allocated | not_allocated);
     } else {
-        // the whole block, set allocated
-        put_mm_block(block, block_size, allocated);
+        // the whole block, set allocated, need to subtract the header
+        put_mm_block(block,
+            block_size - block_size_bytes,
+            prev_allocated | allocated);
+        block = next_mm_block(block);
+        set_mm_allocated_tags(block, prev_allocated | is_mm_allocated(block));
     }
 }
 
@@ -390,7 +405,7 @@ void mm_free(void *ptr) {
     /*free block size include header */
     put_mm_block(mm_block,
         get_mm_block_size(mm_block) + block_size_bytes,
-        not_allocated);
+        is_mm_prev_allocated(mm_block) | not_allocated);
     coalesce(mm_block);
 }
 
@@ -407,12 +422,19 @@ void *mm_realloc(void *ptr, size_t size) {
     }
     mm_block_t *curr_block = get_mm_block(ptr);
     size_t adjusted_size = ALIGN( block_size_bytes + size);
-    size_t curr_size = get_mm_block_size(curr_block);
-    /* case 1 adjust_size is smaller than old*/
-    if (adjusted_size < curr_size) {
+    /*set current block free, convenient for place,
+     *and save preallocated information */
+    size_t curr_size = block_size_bytes + get_mm_block_size(curr_block);
+    put_mm_block(curr_block,
+        curr_size,
+        is_mm_prev_allocated(curr_block) | not_allocated);
+    /* case 1 adjust_size is less than or equal to old*/
+    if (adjusted_size <= curr_size) {
+        // current block is allocated, need use padding size
         place(curr_block, adjusted_size);
         mm_block_t *next_block = next_mm_block(curr_block);
-        coalesce(next_block);
+        if (!is_mm_allocated(next_block))
+            coalesce(next_block);
         return ptr;
     }
 
@@ -421,12 +443,13 @@ void *mm_realloc(void *ptr, size_t size) {
     if (!is_mm_allocated(next_block)) {
         /* case 2 next block is free,
          * and it is sufficient to merge current block and next block */
-        if (block_size_bytes + curr_size + next_size  >= adjusted_size) {
+        if (curr_size + next_size  >= adjusted_size) {
             put_mm_block(curr_block,
                 get_mm_block_size(curr_block) + block_size_bytes,
                 not_allocated);
             /* coalesce current block and next_block */
             coalesce(next_block);
+            /*current block is allocated, need use padding size*/
             place(curr_block, adjusted_size);
             return ptr;
         }
@@ -438,7 +461,7 @@ void *mm_realloc(void *ptr, size_t size) {
         size_t prev_size = get_mm_block_size(pre_block);
         if (!is_mm_allocated(pre_block)
             && prev_size ) {
-            if (prev_size + block_size_bytes + curr_size + next_size
+            if (prev_size + curr_size + next_size
                 >= adjusted_size) {
                 put_mm_block(curr_block,
                         get_mm_block_size(curr_block) + block_size_bytes,

@@ -429,56 +429,7 @@ void *mm_realloc(void *ptr, size_t size) {
     mm_block_t *curr_block = get_mm_block(ptr);
     // size_t adjusted_size = ALIGN(block_size_bytes + size);
     size_t curr_size = get_mm_block_size(curr_block);
-    // size_t total_curr_size = block_size_bytes + curr_size;
-    // if (adjusted_size <= curr_size) {
-    //     // current block is allocated, need use padding size
-    //     place(curr_block, adjusted_size);
-    //     mm_block_t *next_block = next_mm_block(curr_block);
-    //     if (!is_mm_allocated(next_block))
-    //         coalesce(next_block);
-    //     return ptr;
-    // }
-    // mm_block_t *next_block = next_mm_block(curr_block);
-    // size_t next_size = get_mm_block_size(next_block);
-    // if (!is_mm_allocated(next_block)) {
-    //     mm_block_t *pre_block = prev_mm_block(curr_block);
-    //     size_t prev_size = get_mm_block_size(pre_block);
-    //     /* case 1 both pre and next block are free,
-    //      * and it is sufficient to place new block
-    //      * by merging pre,current and next block
-    //      */
-    //     size_t total_size = prev_size + total_curr_size + next_size;
-    //     if (!is_mm_allocated(pre_block)) {
-    //         if (total_size >= adjusted_size + block_size_bytes) {
-    //             /* coalesce previous block, current block and next_block */
-    //             put_mm_block(pre_block, total_size,
-    //                 get_mm_allocated_tags(pre_block) & (~allocated));
-    //             place(pre_block, adjusted_size);
-    //             void *new_ptr = pre_block->payloads;
-    //             /*attention, need to handle overlap case for need block and old block*/
-    //             if (prev_size < curr_size) {
-    //                 long overlap_i = curr_size - (prev_size + block_size_bytes);
-    //                 memcpy(new_ptr, ptr, overlap_i );
-    //                 memcpy(new_ptr + overlap_i, ptr + overlap_i, prev_size + block_size_bytes);
-    //             } else {
-    //                 memcpy(new_ptr, ptr, size);
-    //             }
-    //             return new_ptr;
-    //         }
-    //     }
-    //     /* case 3 next block is free,
-    //      * and it is sufficient to merge current block and next block */
-    //     total_size = total_curr_size + next_size;
-    //     if (total_size >= adjusted_size) {
-    //         /* coalesce current block and next_block */
-    //         put_mm_block(curr_block, total_size,
-    //             get_mm_allocated_tags(curr_block) & (~allocated));
-    //         /*current block is allocated, need use padding size*/
-    //         place(curr_block, adjusted_size);
-    //         return ptr;
-    //     }
-    // }
-    /* case 2, add the neighbors of current block are not sufficient,
+    /* add the neighbors of current block are not sufficient,
      * the above already free it, here find a new block
      */
     void *new_ptr = mm_malloc(size);
